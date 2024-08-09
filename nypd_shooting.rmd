@@ -1,0 +1,202 @@
+---
+title: "NYC Shooting Data Analysis"
+author: "K. Katzmann"
+date: "2024-07-31"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Introduction
+This analysis explores the [NYPD Shooting Incident Data (Historical)](https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic) dataset from Data.gov.
+The dataset contains information on shooting incidents reported to the NYPD from 2006 to the end of the previous calendar year.
+It includes the date, time and location of each reported incident, as well as the age, sex and race of the victim and perpetrator.
+
+This analysis aims to identify temporal and spatial trends in shooting incidents in NYC and to understand the availability of perpetrator information in these incidents.
+Can trends in the data help the NYPD better allocate resources to prevent or solve future incidents?
+
+```{r setup}
+# load necessary libraries
+library(tidyverse)
+library(lubridate)
+
+# set theme for ggplot
+theme_set(theme_minimal())
+```
+
+## Importing Data
+We'll begin the analysis by importing the data from Data.gov and inspecting the first few rows to understand the structure of the dataset.
+After looking at the data, we noticed that missing values are coded in multiple ways.
+We'll address this by including them in the `na` parameter of `read_csv`.
+```{r import_data}
+# import data as a csv from Data.gov
+csv_url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+# after inspecting the data, we see that there are some missing values that are not coded as NA
+nypd_shooting <- read_csv(csv_url, na = c("", "(null)", "UNKNOWN"))
+
+# take a glimpse at the data
+nypd_shooting %>%
+  glimpse()
+```
+
+## Tidying and Transforming Data
+We'll tidy and transform the data by removing unneeded columns, converting data types and creating new columns to be used in our analysis.
+
+```{r tidy_data}
+# remove columns we don't need
+nypd_shooting <- nypd_shooting %>%
+  select(-c(X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat))
+
+# convert date columns to date format
+nypd_shooting <- nypd_shooting %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE),
+         OCCUR_TIME = hms(OCCUR_TIME))
+
+# convert numeric columns to factors
+nypd_shooting <- nypd_shooting %>%
+  mutate(PRECINCT = as_factor(PRECINCT),
+         JURISDICTION_CODE = as_factor(JURISDICTION_CODE))
+
+# create new columns for year, month, day of week, and hour
+nypd_shooting <- nypd_shooting %>%
+  mutate(OCCUR_YEAR = year(OCCUR_DATE),
+         OCCUR_MONTH = month(OCCUR_DATE, label = TRUE),
+         OCCUR_WDAY = wday(OCCUR_DATE, label = TRUE),
+         OCCUR_HOUR = as_factor(hour(OCCUR_TIME)),
+         OCCUR_TIME_OF_DAY = case_when(hour(OCCUR_TIME) >= 5 & hour(OCCUR_TIME) < 12 ~ "Morning",
+                                      hour(OCCUR_TIME) >= 12 & hour(OCCUR_TIME) < 17 ~ "Afternoon",
+                                      hour(OCCUR_TIME) >= 17 & hour(OCCUR_TIME) < 21 ~ "Evening",
+                                      TRUE ~ "Night"))
+
+# create column for perpetrator information
+nypd_shooting <- nypd_shooting %>%
+  mutate(PERP_INFO = !(is.na(PERP_AGE_GROUP) & is.na(PERP_SEX) & is.na(PERP_RACE)))
+
+summary(nypd_shooting)
+```
+
+## Exploratory Data Analysis
+### Temporal Trends
+We'll begin the exploratory analysis by checking for a few temporal trends in the data.
+
+First, let's see if the number of shootings varies by time of day.
+```{r hour_plot}
+# plot number of shootings by time of day
+nypd_shooting %>%
+  group_by(OCCUR_HOUR) %>%
+  summarise(count_incidents = n()) %>%
+  ggplot(aes(x = OCCUR_HOUR, y = count_incidents, fill = OCCUR_HOUR)) +
+  geom_col() +
+  labs(title = "Number of Shootings by Time of Day",
+       x = "Hour",
+       y = "Number of Shootings",
+       fill = "Hour")
+```
+
+Next, let's see if the number of shootings varies by day of the week.
+```{r day_of_week_plot}
+# plot number of shootings by day of week
+nypd_shooting %>%
+  group_by(OCCUR_WDAY) %>%
+  summarise(count_incidents = n()) %>%
+  ggplot(aes(x = OCCUR_WDAY, y = count_incidents, fill = OCCUR_WDAY)) +
+  geom_col() +
+  labs(title = "Number of Shootings by Day of Week",
+       x = "Day of Week",
+       y = "Number of Shootings",
+       fill = "Day of Week")
+```
+  
+Finally, let's see if the number of shootings varies by month.
+```{r month_plot}
+# plot number of shootings by month
+nypd_shooting %>%
+  group_by(OCCUR_MONTH) %>%
+  summarise(count_incidents = n()) %>%
+  ggplot(aes(x = OCCUR_MONTH, y = count_incidents, fill = OCCUR_MONTH)) +
+  geom_col() +
+  labs(title = "Number of Shootings by Month",
+       x = "Month",
+       y = "Number of Shootings",
+       fill = "Month")
+```
+
+### Spatial Trends
+Now that we've looked at some temporal trends, let's see if there are any patterns in the data related to the location of the shootings.
+
+First, let's see if the number of shootings varies by borough.
+```{r borough_plot}
+# plot number of shootings by borough
+nypd_shooting %>%
+  group_by(BORO) %>%
+  summarise(count_incidents = n()) %>%
+  ggplot(aes(x = BORO, y = count_incidents, fill = BORO)) +
+  geom_col() +
+  labs(title = "Number of Shootings by Borough",
+       x = "Borough",
+       y = "Number of Shootings",
+       fill = "Borough")
+```
+
+### Perpetrator Information
+Now, let's see how many shootings have information about the perpetrator.
+```{r perp_info_plot}
+# plot number of shootings with and without perpetrator information
+nypd_shooting %>%
+  group_by(PERP_INFO) %>%
+  summarise(count_incidents = n()) %>%
+  ggplot(aes(x = PERP_INFO, y = count_incidents, fill = PERP_INFO)) +
+  geom_col() +
+  labs(title = "Number of Shootings with and without Perpetrator Information",
+       x = "Perpetrator Information",
+       y = "Number of Shootings",
+       fill = "Perpetrator Information")
+```
+
+## Modeling
+Now that we've explored the data a bit, let's build a linear model to better understand the relationship between some of these variables.
+
+Let's see if we can predict the availability of perpetrator information based on the time of the day and the borough where the shooting occurred.
+```{r perp_info_hour_model}
+model <- lm(PERP_INFO ~ OCCUR_TIME_OF_DAY + BORO, data = nypd_shooting)
+
+summary(model)
+```
+
+## Bias
+Before discussing any insights and drawing conclusions, it is important to recognize the bias that exists in this analysis.
+
+One source of bias is reporting bias.
+It is likely that not all shootings have been reported, and some might be under-reported in certain areas or at certain times.
+
+Another source of bias is in the analysis itself.
+This analysis focuses primarily on the temporal patterns of reported shooting incidents and the availability of perpetrator information.
+Although the availability of perpetrator information might seem important for identifying the perpetrator, it's uncertain just how important it is, and too much weight might be placed on it here.
+
+This analysis also avoids any exploration of demographic information, which could be useful in understanding the underlying causes of these incidents.
+
+## Conclusion
+There are a few potentially valuable insights we've gained by analyzing the [NYPD Shooting Incident Data (Historical)](https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic) dataset.
+
+By digging into the temporal component of these incidents, we noticed that shootings occur more often at night, on the weekends, and during Summer months.
+The police department should be extra vigilant during these times!
+
+We also learned that Brooklyn has the highest frequency of shooting incidents reported.
+However, that might be explained by Brooklyn having a larger population.
+We should adjust for the population of each borough in a follow-up analysis.
+
+We also noticed that not all incidents had perpetrator information available.
+Since information on the perpetrator could be very useful in identifying and arresting the perpetrator, we decided to explore this variable a bit further.
+We modeled the relationship between the availability of perpetrator information and the time of day and borough where the shooting occurred.
+We found that shooting incidents at night are less likely to have perpetrator information available (estimate = -0.12, p-value < 0.001).
+We also found that shooting incidents in Brooklyn are less likely to have perpetrator information available (estimate = -0.08, p-value < 0.001).
+However, this model only explains a small portion of the variance in perpetrator information avialable on shooting incidents (R-squared = 0.02).
+
+The insights gained in this analysis could be very useful to the NYPD in allocating resources in order to prevent or solve future shooting incidents.
+
+
+## Session Info
+```{r session_info}
+sessionInfo()
+```
