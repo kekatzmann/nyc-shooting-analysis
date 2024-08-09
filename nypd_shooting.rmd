@@ -3,8 +3,8 @@ title: "NYC Shooting Data Analysis"
 author: "K. Katzmann"
 date: "2024-07-31"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ## Introduction
